@@ -11,16 +11,21 @@ pub fn part_two(input: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn test_part_one() {
-        let result = part_one(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+    #[rstest]
+    #[case(&advent_of_code::template::read_file("examples", DAY), None)]
+    fn test_part_one(#[case] input: &str, #[case] expected: Option<u32>) {
+        tracing_init(Level::INFO);
+        let result = part_one();
+        assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_part_two() {
-        let result = part_two(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+    #[rstest]
+    #[case(&advent_of_code::template::read_file("examples", DAY), None)]
+    fn test_part_two(#[case] input: &str, #[case] expected: Option<u32>) {
+        tracing_init(Level::INFO);
+        let result = part_two();
+        assert_eq!(result, expected);
     }
 }
