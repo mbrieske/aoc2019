@@ -1,3 +1,5 @@
+use std::io::stdin;
+
 use super::opcode::OpCode;
 
 pub struct Cpu {
@@ -23,6 +25,7 @@ impl Cpu {
             let c = c as usize;
 
             match opcode {
+                In | Out => self.pc += 2,
                 Add | Mul => self.pc += 4,
                 Halt => (),
             }
@@ -30,6 +33,18 @@ impl Cpu {
             match opcode {
                 OpCode::Add => self.program[c] = self.program[a] + self.program[b],
                 OpCode::Mul => self.program[c] = self.program[a] * self.program[b],
+                OpCode::In => {
+                    let mut input_line = String::new();
+                    stdin()
+                        .read_line(&mut input_line)
+                        .expect("Failed to read line");
+                    let input = input_line
+                        .trim()
+                        .parse()
+                        .expect("Could not parse integer from input");
+                    self.program[a] = input;
+                }
+                OpCode::Out => println!("{}", self.program[a]),
                 OpCode::Halt => break,
             }
         }
