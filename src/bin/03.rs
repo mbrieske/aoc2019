@@ -93,8 +93,8 @@ pub fn part_two(input: &str) -> Option<u32> {
             });
     });
 
-    let keys1: HashSet<(i32, i32)> = seen[0].keys().cloned().collect();
-    let keys2: HashSet<(i32, i32)> = seen[1].keys().cloned().collect();
+    let keys1: HashSet<(i32, i32)> = seen[0].keys().copied().collect();
+    let keys2: HashSet<(i32, i32)> = seen[1].keys().copied().collect();
     let intersections = keys1.intersection(&keys2);
 
     intersections

@@ -1,52 +1,111 @@
+use tracing::info;
+
+use super::opcode::OpCode::*;
 use std::io::stdin;
 
 use super::opcode::OpCode;
 
+enum Dat {
+    Reference(usize),
+    Literal(i32),
+}
+
+impl Dat {
+    fn value(&self, program: &[i32]) -> i32 {
+        match self {
+            Dat::Reference(v) => *program.get(*v).unwrap(),
+            Dat::Literal(v) => *v,
+        }
+    }
+
+    fn addr(&self) -> usize {
+        match self {
+            Dat::Reference(v) => *v,
+            _ => panic!("tried to get addr of a non positional argument"),
+        }
+    }
+}
+
+impl Dat {}
+
 pub struct Cpu {
-    pub program: Vec<u32>,
+    pub program: Vec<i32>,
     pc: usize,
+    pub outputs: Vec<i32>,
 }
 
 impl Cpu {
-    pub fn new(mut program: Vec<u32>) -> Self {
-        program.extend([255; 3]);
-        Self { program, pc: 0 }
+    pub fn new(mut program: Vec<i32>) -> Self {
+        program.extend([0; 3]);
+        Self {
+            program,
+            pc: 0,
+            outputs: Vec::new(),
+        }
     }
 
-    pub fn run(&mut self) {
-        use super::opcode::OpCode::*;
+    pub fn run(&mut self, inputs: Option<Vec<i32>>) {
+        let mut inputs = inputs.map(|v| v.into_iter());
         loop {
-            let [opcode, a, b, c] = self.program[self.pc..self.pc + 4] else {
-                unreachable!()
-            };
-            let opcode = OpCode::from(opcode);
-            let a = a as usize;
-            let b = b as usize;
-            let c = c as usize;
+            let (opcode, a, b, c) = self.advance();
 
             match opcode {
-                In | Out => self.pc += 2,
-                Add | Mul => self.pc += 4,
-                Halt => (),
-            }
-
-            match opcode {
-                OpCode::Add => self.program[c] = self.program[a] + self.program[b],
-                OpCode::Mul => self.program[c] = self.program[a] * self.program[b],
-                OpCode::In => {
-                    let mut input_line = String::new();
-                    stdin()
-                        .read_line(&mut input_line)
-                        .expect("Failed to read line");
-                    let input = input_line
-                        .trim()
-                        .parse()
-                        .expect("Could not parse integer from input");
-                    self.program[a] = input;
-                }
-                OpCode::Out => println!("{}", self.program[a]),
-                OpCode::Halt => break,
+                Add => self.program[c.addr()] = a.value(&self.program) + b.value(&self.program),
+                Mul => self.program[c.addr()] = a.value(&self.program) * b.value(&self.program),
+                In => self.program[a.addr()] = get_input(&mut inputs),
+                Out => self.output(a.value(&self.program)),
+                Halt => break,
             }
         }
+    }
+
+    fn advance(&mut self) -> (OpCode, Dat, Dat, Dat) {
+        let [opcode, a, b, c] = self.program[self.pc..self.pc + 4] else {
+            unreachable!()
+        };
+        let a = if (opcode / 100) % 10 == 0 {
+            Dat::Reference(a as usize)
+        } else {
+            Dat::Literal(a)
+        };
+        let b = if (opcode / 1_000) % 10 == 0 {
+            Dat::Reference(b as usize)
+        } else {
+            Dat::Literal(b)
+        };
+        let c = if (opcode / 10_000) % 10 == 0 {
+            Dat::Reference(c as usize)
+        } else {
+            Dat::Literal(c)
+        };
+        let opcode = OpCode::from(opcode);
+
+        match opcode {
+            In | Out => self.pc += 2,
+            Add | Mul => self.pc += 4,
+            Halt => (),
+        }
+
+        (opcode, a, b, c)
+    }
+
+    fn output(&mut self, value: i32) {
+        self.outputs.push(value);
+        info!("{}", value)
+    }
+}
+
+fn get_input(inputs: &mut Option<impl Iterator<Item = i32>>) -> i32 {
+    if let Some(input) = inputs.as_mut() {
+        input.next().unwrap()
+    } else {
+        let mut input_line = String::new();
+        stdin()
+            .read_line(&mut input_line)
+            .expect("Failed to read line");
+        input_line
+            .trim()
+            .parse()
+            .expect("Could not parse integer from input")
     }
 }

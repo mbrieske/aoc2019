@@ -6,9 +6,9 @@ pub enum OpCode {
     Halt,
 }
 
-impl From<u32> for OpCode {
-    fn from(code: u32) -> Self {
-        match code {
+impl From<i32> for OpCode {
+    fn from(code: i32) -> Self {
+        match code % 100 {
             1 => Self::Add,
             2 => Self::Mul,
             3 => Self::In,
