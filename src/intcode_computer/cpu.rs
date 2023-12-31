@@ -1,6 +1,7 @@
 use super::opcode::OpCode;
 use super::opcode::OpCode::*;
 use std::io::stdin;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::info;
 
 enum Dat {
@@ -30,6 +31,9 @@ pub struct Cpu {
     pub program: Vec<i32>,
     pc: usize,
     pub outputs: Vec<i32>,
+    r#async: bool,
+    pub output: Option<Sender<i32>>,
+    input: Option<Receiver<i32>>,
 }
 
 impl Cpu {
@@ -39,7 +43,26 @@ impl Cpu {
             program,
             pc: 0,
             outputs: Vec::new(),
+            r#async: false,
+            input: None,
+            output: None,
         }
+    }
+
+    pub fn new_async(mut program: Vec<i32>, tx: Option<Sender<i32>>) -> (Self, Sender<i32>) {
+        let (tx_handle, rx) = mpsc::channel(32);
+        program.extend([0; 3]);
+        (
+            Self {
+                program,
+                pc: 0,
+                outputs: Vec::new(),
+                r#async: true,
+                output: tx,
+                input: Some(rx),
+            },
+            tx_handle,
+        )
     }
 
     fn get(&self, arg: Dat) -> i32 {
@@ -50,7 +73,7 @@ impl Cpu {
         &mut self.program[arg.addr()]
     }
 
-    pub fn run(&mut self, inputs: Option<Vec<i32>>) {
+    pub async fn run_async(&mut self, inputs: Option<Vec<i32>>) {
         let mut inputs = inputs.map(|v| v.into_iter());
         loop {
             let (opcode, a, b, c) = self.advance();
@@ -58,8 +81,8 @@ impl Cpu {
             match opcode {
                 Add => *self.get_mut(c) = self.get(a) + self.get(b),
                 Mul => *self.get_mut(c) = self.get(a) * self.get(b),
-                In => *self.get_mut(a) = get_input(&mut inputs),
-                Out => self.output(self.get(a)),
+                In => *self.get_mut(a) = self.get_input(&mut inputs).await,
+                Out => self.output(self.get(a)).await,
                 Jt => {
                     if self.get(a) != 0 {
                         self.pc = self.get(b) as usize
@@ -75,6 +98,12 @@ impl Cpu {
                 Halt => break,
             }
         }
+    }
+
+    pub fn run(&mut self, inputs: Option<Vec<i32>>) {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.run_async(inputs))
     }
 
     fn advance(&mut self) -> (OpCode, Dat, Dat, Dat) {
@@ -108,23 +137,29 @@ impl Cpu {
         (opcode, a, b, c)
     }
 
-    fn output(&mut self, value: i32) {
+    async fn get_input(&mut self, inputs: &mut Option<impl Iterator<Item = i32>>) -> i32 {
+        if self.r#async {
+            self.input.as_mut().unwrap().recv().await.unwrap()
+        } else if let Some(input) = inputs.as_mut() {
+            input.next().unwrap()
+        } else {
+            let mut input_line = String::new();
+            stdin()
+                .read_line(&mut input_line)
+                .expect("Failed to read line");
+
+            input_line
+                .trim()
+                .parse::<i32>()
+                .expect("Could not parse integer from input")
+        }
+    }
+
+    async fn output(&mut self, value: i32) {
+        if self.r#async {
+            self.output.as_ref().unwrap().send(value).await.unwrap();
+        }
         self.outputs.push(value);
         info!("{}", value)
-    }
-}
-
-fn get_input(inputs: &mut Option<impl Iterator<Item = i32>>) -> i32 {
-    if let Some(input) = inputs.as_mut() {
-        input.next().unwrap()
-    } else {
-        let mut input_line = String::new();
-        stdin()
-            .read_line(&mut input_line)
-            .expect("Failed to read line");
-        input_line
-            .trim()
-            .parse()
-            .expect("Could not parse integer from input")
     }
 }
