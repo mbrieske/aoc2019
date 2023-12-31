@@ -1,9 +1,7 @@
-use tracing::info;
-
+use super::opcode::OpCode;
 use super::opcode::OpCode::*;
 use std::io::stdin;
-
-use super::opcode::OpCode;
+use tracing::info;
 
 enum Dat {
     Reference(usize),
@@ -44,16 +42,36 @@ impl Cpu {
         }
     }
 
+    fn get(&self, arg: Dat) -> i32 {
+        arg.value(&self.program)
+    }
+
+    fn get_mut(&mut self, arg: Dat) -> &mut i32 {
+        &mut self.program[arg.addr()]
+    }
+
     pub fn run(&mut self, inputs: Option<Vec<i32>>) {
         let mut inputs = inputs.map(|v| v.into_iter());
         loop {
             let (opcode, a, b, c) = self.advance();
 
             match opcode {
-                Add => self.program[c.addr()] = a.value(&self.program) + b.value(&self.program),
-                Mul => self.program[c.addr()] = a.value(&self.program) * b.value(&self.program),
-                In => self.program[a.addr()] = get_input(&mut inputs),
-                Out => self.output(a.value(&self.program)),
+                Add => *self.get_mut(c) = self.get(a) + self.get(b),
+                Mul => *self.get_mut(c) = self.get(a) * self.get(b),
+                In => *self.get_mut(a) = get_input(&mut inputs),
+                Out => self.output(self.get(a)),
+                Jt => {
+                    if self.get(a) != 0 {
+                        self.pc = self.get(b) as usize
+                    }
+                }
+                Jf => {
+                    if self.get(a) == 0 {
+                        self.pc = self.get(b) as usize
+                    }
+                }
+                Lt => *self.get_mut(c) = (self.get(a) < self.get(b)) as i32,
+                Eq => *self.get_mut(c) = (self.get(a) == self.get(b)) as i32,
                 Halt => break,
             }
         }
@@ -82,7 +100,8 @@ impl Cpu {
 
         match opcode {
             In | Out => self.pc += 2,
-            Add | Mul => self.pc += 4,
+            Jt | Jf => self.pc += 3,
+            Add | Mul | Lt | Eq => self.pc += 4,
             Halt => (),
         }
 
