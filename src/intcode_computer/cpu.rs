@@ -1,6 +1,6 @@
 use super::opcode::OpCode;
 use super::opcode::OpCode::*;
-use std::io::stdin;
+use std::{collections::HashMap, io::stdin};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::info;
 
@@ -23,11 +23,13 @@ impl From<(i32, i32)> for Dat {
 }
 
 impl Dat {
-    fn value(&self, program: &[i32], base: &usize) -> i32 {
+    fn value(&self, program: &HashMap<usize, i32>, base: &usize) -> i32 {
         match self {
-            Dat::Position(v) => *program.get(*v).unwrap(),
+            // Dat::Position(v) => *program.get(v).unwrap(),
+            // Dat::Position(v) => *program.entry(*v).or_default(),
+            Dat::Position(v) => *program.get(v).unwrap_or(&0),
             Dat::Literal(v) => *v,
-            Dat::Relative(v) => *program.get(base + v).unwrap(),
+            Dat::Relative(v) => *program.get(&(base + v)).unwrap_or(&0),
         }
     }
 
@@ -43,7 +45,7 @@ impl Dat {
 impl Dat {}
 
 pub struct Cpu {
-    pub program: Vec<i32>,
+    pub program: HashMap<usize, i32>,
     pc: usize,
     relative_base: usize,
     pub outputs: Vec<i32>,
@@ -52,8 +54,8 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(mut program: Vec<i32>) -> Self {
-        program.extend([0; 3]);
+    pub fn new(program: Vec<i32>) -> Self {
+        let program: HashMap<usize, i32> = program.into_iter().enumerate().collect();
         Self {
             program,
             pc: 0,
@@ -77,7 +79,9 @@ impl Cpu {
     }
 
     fn get_mut(&mut self, arg: &Dat) -> &mut i32 {
-        &mut self.program[arg.addr(&self.relative_base)]
+        self.program
+            .entry(arg.addr(&self.relative_base))
+            .or_default()
     }
 
     fn run_common(&mut self) -> (OpCode, Dat) {
@@ -131,9 +135,11 @@ impl Cpu {
     }
 
     fn advance(&mut self) -> (OpCode, Dat, Dat, Dat) {
-        let [opcode, a, b, c] = self.program[self.pc..self.pc + 4] else {
-            unreachable!()
-        };
+        let opcode = *self.program.entry(self.pc).or_default();
+        let a = *self.program.entry(self.pc + 1).or_default();
+        let b = *self.program.entry(self.pc + 2).or_default();
+        let c = *self.program.entry(self.pc + 3).or_default();
+
         let a = Dat::from(((opcode / 100) % 10, a));
         let b = Dat::from(((opcode / 1_000) % 10, b));
         let c = Dat::from(((opcode / 10_000) % 10, c));

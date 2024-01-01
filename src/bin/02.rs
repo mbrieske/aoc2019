@@ -9,7 +9,7 @@ pub fn part_one(input: &str) -> Option<i32> {
     program[2] = 2;
     let mut cpu = Cpu::new(program);
     cpu.run(None);
-    Some(cpu.program[0])
+    Some(*cpu.program.get(&0).unwrap())
 }
 
 pub fn part_two(input: &str) -> Option<i32> {
@@ -22,7 +22,7 @@ pub fn part_two(input: &str) -> Option<i32> {
             p[2] = verb;
             let mut cpu = Cpu::new(p);
             cpu.run(None);
-            if cpu.program[0] == 19690720 {
+            if *cpu.program.get(&0).unwrap() == 19690720 {
                 Some(100 * noun + verb)
             } else {
                 None
