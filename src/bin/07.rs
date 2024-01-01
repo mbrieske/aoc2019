@@ -71,7 +71,7 @@ async fn run_feedback_loop(program: Vec<i32>, phase_permutation: Vec<&i32>) -> i
         .await
         .unwrap();
 
-    let futures: Vec<_> = cpus.iter_mut().map(|cpu| cpu.run_async(None)).collect();
+    let futures: Vec<_> = cpus.iter_mut().map(|cpu| cpu.run_async()).collect();
     join_all(futures).await;
     *cpus.last().unwrap().outputs.last().unwrap()
 }

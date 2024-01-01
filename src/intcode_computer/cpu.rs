@@ -4,6 +4,7 @@ use std::io::stdin;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::info;
 
+#[derive(Clone)]
 enum Dat {
     Reference(usize),
     Literal(i32),
@@ -65,45 +66,61 @@ impl Cpu {
         )
     }
 
-    fn get(&self, arg: Dat) -> i32 {
+    fn get(&self, arg: &Dat) -> i32 {
         arg.value(&self.program)
     }
 
-    fn get_mut(&mut self, arg: Dat) -> &mut i32 {
+    fn get_mut(&mut self, arg: &Dat) -> &mut i32 {
         &mut self.program[arg.addr()]
     }
 
-    pub async fn run_async(&mut self, inputs: Option<Vec<i32>>) {
-        let mut inputs = inputs.map(|v| v.into_iter());
-        loop {
-            let (opcode, a, b, c) = self.advance();
+    fn run_common(&mut self) -> (OpCode, Dat) {
+        let (opcode, a, b, c) = self.advance();
 
+        match opcode {
+            Add => *self.get_mut(&c) = self.get(&a) + self.get(&b),
+            Mul => *self.get_mut(&c) = self.get(&a) * self.get(&b),
+            Jt => {
+                if self.get(&a) != 0 {
+                    self.pc = self.get(&b) as usize
+                }
+            }
+            Jf => {
+                if self.get(&a) == 0 {
+                    self.pc = self.get(&b) as usize
+                }
+            }
+            Lt => *self.get_mut(&c) = (self.get(&a) < self.get(&b)) as i32,
+            Eq => *self.get_mut(&c) = (self.get(&a) == self.get(&b)) as i32,
+            Halt | In | Out => (),
+        }
+        (opcode, a)
+    }
+
+    pub fn run(&mut self, inputs: Option<Vec<i32>>) {
+        let mut inputs = inputs.map(|v| v.into_iter());
+
+        loop {
+            let (opcode, a) = self.run_common();
             match opcode {
-                Add => *self.get_mut(c) = self.get(a) + self.get(b),
-                Mul => *self.get_mut(c) = self.get(a) * self.get(b),
-                In => *self.get_mut(a) = self.get_input(&mut inputs).await,
-                Out => self.output(self.get(a)).await,
-                Jt => {
-                    if self.get(a) != 0 {
-                        self.pc = self.get(b) as usize
-                    }
-                }
-                Jf => {
-                    if self.get(a) == 0 {
-                        self.pc = self.get(b) as usize
-                    }
-                }
-                Lt => *self.get_mut(c) = (self.get(a) < self.get(b)) as i32,
-                Eq => *self.get_mut(c) = (self.get(a) == self.get(b)) as i32,
+                In => *self.get_mut(&a) = self.get_input(&mut inputs),
+                Out => self.output(self.get(&a)),
                 Halt => break,
+                _ => (),
             }
         }
     }
 
-    pub fn run(&mut self, inputs: Option<Vec<i32>>) {
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.run_async(inputs))
+    pub async fn run_async(&mut self) {
+        loop {
+            let (opcode, a) = self.run_common();
+            match opcode {
+                In => *self.get_mut(&a) = self.get_input_async().await,
+                Out => self.output_async(self.get(&a)).await,
+                Halt => break,
+                _ => (),
+            }
+        }
     }
 
     fn advance(&mut self) -> (OpCode, Dat, Dat, Dat) {
@@ -137,11 +154,9 @@ impl Cpu {
         (opcode, a, b, c)
     }
 
-    async fn get_input(&mut self, inputs: &mut Option<impl Iterator<Item = i32>>) -> i32 {
-        if self.r#async {
-            self.input.as_mut().unwrap().recv().await.unwrap()
-        } else if let Some(input) = inputs.as_mut() {
-            input.next().unwrap()
+    fn get_input(&mut self, inputs: &mut Option<impl Iterator<Item = i32>>) -> i32 {
+        if let Some(inputs) = inputs {
+            inputs.next().unwrap()
         } else {
             let mut input_line = String::new();
             stdin()
@@ -155,11 +170,19 @@ impl Cpu {
         }
     }
 
-    async fn output(&mut self, value: i32) {
+    async fn get_input_async(&mut self) -> i32 {
+        self.input.as_mut().unwrap().recv().await.unwrap()
+    }
+
+    fn output(&mut self, value: i32) {
+        self.outputs.push(value);
+        info!("{}", value)
+    }
+
+    async fn output_async(&mut self, value: i32) {
         if self.r#async {
             self.output.as_ref().unwrap().send(value).await.unwrap();
         }
-        self.outputs.push(value);
-        info!("{}", value)
+        self.output(value);
     }
 }
