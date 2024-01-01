@@ -7,6 +7,7 @@ pub enum OpCode {
     Jf,
     Lt,
     Eq,
+    Rb,
     Halt,
 }
 
@@ -21,6 +22,7 @@ impl From<i32> for OpCode {
             6 => Self::Jf,
             7 => Self::Lt,
             8 => Self::Eq,
+            9 => Self::Rb,
             99 => Self::Halt,
             _ => unreachable!(),
         }

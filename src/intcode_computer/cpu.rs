@@ -6,22 +6,36 @@ use tracing::info;
 
 #[derive(Clone)]
 enum Dat {
-    Reference(usize),
+    Position(usize),
     Literal(i32),
+    Relative(usize),
+}
+
+impl From<(i32, i32)> for Dat {
+    fn from((mode, value): (i32, i32)) -> Self {
+        match mode {
+            0 => Self::Position(value as usize),
+            1 => Self::Literal(value),
+            2 => Self::Relative(value as usize),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Dat {
-    fn value(&self, program: &[i32]) -> i32 {
+    fn value(&self, program: &[i32], base: &usize) -> i32 {
         match self {
-            Dat::Reference(v) => *program.get(*v).unwrap(),
+            Dat::Position(v) => *program.get(*v).unwrap(),
             Dat::Literal(v) => *v,
+            Dat::Relative(v) => *program.get(base + v).unwrap(),
         }
     }
 
-    fn addr(&self) -> usize {
+    fn addr(&self, base: &usize) -> usize {
         match self {
-            Dat::Reference(v) => *v,
-            _ => panic!("tried to get addr of a non positional argument"),
+            Dat::Position(v) => *v,
+            Dat::Relative(v) => base + v,
+            _ => panic!("tried to get addr of a non positional or relative argument"),
         }
     }
 }
@@ -31,8 +45,8 @@ impl Dat {}
 pub struct Cpu {
     pub program: Vec<i32>,
     pc: usize,
+    relative_base: usize,
     pub outputs: Vec<i32>,
-    r#async: bool,
     pub output: Option<Sender<i32>>,
     input: Option<Receiver<i32>>,
 }
@@ -43,35 +57,27 @@ impl Cpu {
         Self {
             program,
             pc: 0,
+            relative_base: 0,
             outputs: Vec::new(),
-            r#async: false,
             input: None,
             output: None,
         }
     }
 
-    pub fn new_async(mut program: Vec<i32>, tx: Option<Sender<i32>>) -> (Self, Sender<i32>) {
+    pub fn new_async(program: Vec<i32>, tx: Option<Sender<i32>>) -> (Self, Sender<i32>) {
         let (tx_handle, rx) = mpsc::channel(32);
-        program.extend([0; 3]);
-        (
-            Self {
-                program,
-                pc: 0,
-                outputs: Vec::new(),
-                r#async: true,
-                output: tx,
-                input: Some(rx),
-            },
-            tx_handle,
-        )
+        let mut instance = Self::new(program);
+        instance.input = Some(rx);
+        instance.output = tx;
+        (instance, tx_handle)
     }
 
     fn get(&self, arg: &Dat) -> i32 {
-        arg.value(&self.program)
+        arg.value(&self.program, &self.relative_base)
     }
 
     fn get_mut(&mut self, arg: &Dat) -> &mut i32 {
-        &mut self.program[arg.addr()]
+        &mut self.program[arg.addr(&self.relative_base)]
     }
 
     fn run_common(&mut self) -> (OpCode, Dat) {
@@ -92,6 +98,7 @@ impl Cpu {
             }
             Lt => *self.get_mut(&c) = (self.get(&a) < self.get(&b)) as i32,
             Eq => *self.get_mut(&c) = (self.get(&a) == self.get(&b)) as i32,
+            Rb => self.relative_base = self.get(&a) as usize,
             Halt | In | Out => (),
         }
         (opcode, a)
@@ -127,25 +134,14 @@ impl Cpu {
         let [opcode, a, b, c] = self.program[self.pc..self.pc + 4] else {
             unreachable!()
         };
-        let a = if (opcode / 100) % 10 == 0 {
-            Dat::Reference(a as usize)
-        } else {
-            Dat::Literal(a)
-        };
-        let b = if (opcode / 1_000) % 10 == 0 {
-            Dat::Reference(b as usize)
-        } else {
-            Dat::Literal(b)
-        };
-        let c = if (opcode / 10_000) % 10 == 0 {
-            Dat::Reference(c as usize)
-        } else {
-            Dat::Literal(c)
-        };
+        let a = Dat::from(((opcode / 100) % 10, a));
+        let b = Dat::from(((opcode / 1_000) % 10, b));
+        let c = Dat::from(((opcode / 10_000) % 10, c));
+
         let opcode = OpCode::from(opcode);
 
         match opcode {
-            In | Out => self.pc += 2,
+            In | Out | Rb => self.pc += 2,
             Jt | Jf => self.pc += 3,
             Add | Mul | Lt | Eq => self.pc += 4,
             Halt => (),
@@ -180,9 +176,7 @@ impl Cpu {
     }
 
     async fn output_async(&mut self, value: i32) {
-        if self.r#async {
-            self.output.as_ref().unwrap().send(value).await.unwrap();
-        }
+        self.output.as_ref().unwrap().send(value).await.unwrap();
         self.output(value);
     }
 }
