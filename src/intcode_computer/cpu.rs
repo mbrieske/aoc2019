@@ -120,12 +120,12 @@ impl Cpu {
         }
     }
 
-    pub async fn run_async(&mut self) {
+    pub async fn run_async(&mut self, tx: Option<Sender<i64>>) {
         loop {
             let (opcode, a) = self.run_common();
             match opcode {
                 In => *self.get_mut(&a) = self.get_input_async().await,
-                Out => self.output_async(self.get(&a)).await,
+                Out => self.output_async(self.get(&a), tx.as_ref()).await,
                 Halt => break,
                 _ => (),
             }
@@ -179,8 +179,12 @@ impl Cpu {
         info!("{}", value)
     }
 
-    async fn output_async(&mut self, value: i64) {
-        self.output.as_ref().unwrap().send(value).await.unwrap();
+    async fn output_async(&mut self, value: i64, tx: Option<&Sender<i64>>) {
+        if let Some(tx) = tx {
+            tx.send(value).await.unwrap();
+        } else {
+            self.output.as_ref().unwrap().send(value).await.unwrap()
+        };
         self.output(value);
     }
 }
