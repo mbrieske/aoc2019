@@ -6,7 +6,7 @@ use tokio::runtime::Runtime;
 advent_of_code::solution!(7);
 
 pub fn part_one(input: &str) -> Option<u32> {
-    let program: Vec<i32> = input.split(',').map(|s| s.parse().unwrap()).collect();
+    let program: Vec<_> = input.split(',').map(|s| s.parse().unwrap()).collect();
     let phases = [0, 1, 2, 3, 4];
     let max_signal = phases
         .iter()
@@ -25,7 +25,7 @@ pub fn part_one(input: &str) -> Option<u32> {
 pub fn part_two(input: &str) -> Option<u32> {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let program: Vec<i32> = input.split(',').map(|s| s.parse().unwrap()).collect();
+        let program: Vec<i64> = input.split(',').map(|s| s.parse().unwrap()).collect();
 
         let phases = [5, 6, 7, 8, 9];
         let output_signals = phases
@@ -37,12 +37,12 @@ pub fn part_two(input: &str) -> Option<u32> {
     })
 }
 
-fn run_amplifier(mut cpu: Cpu, phase: i32, input: i32) -> Option<i32> {
+fn run_amplifier(mut cpu: Cpu, phase: i64, input: i64) -> Option<i64> {
     cpu.run(Some(vec![phase, input]));
     cpu.outputs.last().copied()
 }
 
-async fn run_feedback_loop(program: Vec<i32>, phase_permutation: Vec<&i32>) -> i32 {
+async fn run_feedback_loop(program: Vec<i64>, phase_permutation: Vec<&i64>) -> i64 {
     let mut cpus = Vec::new();
 
     let last_tx = (0..5).fold(None, |last_tx, _| {

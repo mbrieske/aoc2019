@@ -10,8 +10,8 @@ pub fn part_two(input: &str) -> Option<u32> {
     run(input, 5)
 }
 
-fn run(program: &str, input: i32) -> Option<u32> {
-    let program: Vec<i32> = program.split(',').map(|s| s.parse().unwrap()).collect();
+fn run(program: &str, input: i64) -> Option<u32> {
+    let program: Vec<_> = program.split(',').map(|s| s.parse().unwrap()).collect();
     let mut cpu = Cpu::new(program);
     cpu.run(Some(vec![input]));
     cpu.outputs.last().map(|&output| output as u32)
@@ -42,7 +42,7 @@ mod tests {
     #[case(&template::read_file_part("examples", DAY, 6), 7, Some(999))]
     #[case(&template::read_file_part("examples", DAY, 6), 8, Some(1000))]
     #[case(&template::read_file_part("examples", DAY, 6), 9, Some(1001))]
-    fn test_part_two(#[case] program: &str, #[case] input: i32, #[case] expected: Option<u32>) {
+    fn test_part_two(#[case] program: &str, #[case] input: i64, #[case] expected: Option<u32>) {
         let result = run(program, input);
         assert_eq!(result, expected);
     }

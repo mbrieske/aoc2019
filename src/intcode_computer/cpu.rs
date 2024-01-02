@@ -7,36 +7,34 @@ use tracing::info;
 #[derive(Clone)]
 enum Dat {
     Position(usize),
-    Literal(i32),
-    Relative(usize),
+    Literal(i64),
+    Relative(isize),
 }
 
-impl From<(i32, i32)> for Dat {
-    fn from((mode, value): (i32, i32)) -> Self {
+impl From<(u8, i64)> for Dat {
+    fn from((mode, value): (u8, i64)) -> Self {
         match mode {
             0 => Self::Position(value as usize),
             1 => Self::Literal(value),
-            2 => Self::Relative(value as usize),
+            2 => Self::Relative(value as isize),
             _ => unreachable!(),
         }
     }
 }
 
 impl Dat {
-    fn value(&self, program: &HashMap<usize, i32>, base: &usize) -> i32 {
+    fn value(&self, program: &HashMap<usize, i64>, base: &isize) -> i64 {
         match self {
-            // Dat::Position(v) => *program.get(v).unwrap(),
-            // Dat::Position(v) => *program.entry(*v).or_default(),
             Dat::Position(v) => *program.get(v).unwrap_or(&0),
             Dat::Literal(v) => *v,
-            Dat::Relative(v) => *program.get(&(base + v)).unwrap_or(&0),
+            Dat::Relative(v) => *program.get(&((base + v) as usize)).unwrap_or(&0),
         }
     }
 
-    fn addr(&self, base: &usize) -> usize {
+    fn addr(&self, base: &isize) -> usize {
         match self {
             Dat::Position(v) => *v,
-            Dat::Relative(v) => base + v,
+            Dat::Relative(v) => (base + v) as usize,
             _ => panic!("tried to get addr of a non positional or relative argument"),
         }
     }
@@ -45,17 +43,17 @@ impl Dat {
 impl Dat {}
 
 pub struct Cpu {
-    pub program: HashMap<usize, i32>,
+    pub program: HashMap<usize, i64>,
     pc: usize,
-    relative_base: usize,
-    pub outputs: Vec<i32>,
-    pub output: Option<Sender<i32>>,
-    input: Option<Receiver<i32>>,
+    pub relative_base: isize,
+    pub outputs: Vec<i64>,
+    pub output: Option<Sender<i64>>,
+    input: Option<Receiver<i64>>,
 }
 
 impl Cpu {
-    pub fn new(program: Vec<i32>) -> Self {
-        let program: HashMap<usize, i32> = program.into_iter().enumerate().collect();
+    pub fn new(program: Vec<i64>) -> Self {
+        let program: HashMap<usize, i64> = program.into_iter().enumerate().collect();
         Self {
             program,
             pc: 0,
@@ -66,7 +64,7 @@ impl Cpu {
         }
     }
 
-    pub fn new_async(program: Vec<i32>, tx: Option<Sender<i32>>) -> (Self, Sender<i32>) {
+    pub fn new_async(program: Vec<i64>, tx: Option<Sender<i64>>) -> (Self, Sender<i64>) {
         let (tx_handle, rx) = mpsc::channel(32);
         let mut instance = Self::new(program);
         instance.input = Some(rx);
@@ -74,11 +72,11 @@ impl Cpu {
         (instance, tx_handle)
     }
 
-    fn get(&self, arg: &Dat) -> i32 {
+    fn get(&self, arg: &Dat) -> i64 {
         arg.value(&self.program, &self.relative_base)
     }
 
-    fn get_mut(&mut self, arg: &Dat) -> &mut i32 {
+    fn get_mut(&mut self, arg: &Dat) -> &mut i64 {
         self.program
             .entry(arg.addr(&self.relative_base))
             .or_default()
@@ -100,15 +98,15 @@ impl Cpu {
                     self.pc = self.get(&b) as usize
                 }
             }
-            Lt => *self.get_mut(&c) = (self.get(&a) < self.get(&b)) as i32,
-            Eq => *self.get_mut(&c) = (self.get(&a) == self.get(&b)) as i32,
-            Rb => self.relative_base = self.get(&a) as usize,
+            Lt => *self.get_mut(&c) = (self.get(&a) < self.get(&b)) as i64,
+            Eq => *self.get_mut(&c) = (self.get(&a) == self.get(&b)) as i64,
+            Rb => self.relative_base += self.get(&a) as isize,
             Halt | In | Out => (),
         }
         (opcode, a)
     }
 
-    pub fn run(&mut self, inputs: Option<Vec<i32>>) {
+    pub fn run(&mut self, inputs: Option<Vec<i64>>) {
         let mut inputs = inputs.map(|v| v.into_iter());
 
         loop {
@@ -140,9 +138,9 @@ impl Cpu {
         let b = *self.program.entry(self.pc + 2).or_default();
         let c = *self.program.entry(self.pc + 3).or_default();
 
-        let a = Dat::from(((opcode / 100) % 10, a));
-        let b = Dat::from(((opcode / 1_000) % 10, b));
-        let c = Dat::from(((opcode / 10_000) % 10, c));
+        let a = Dat::from((((opcode / 100) % 10) as u8, a));
+        let b = Dat::from((((opcode / 1_000) % 10) as u8, b));
+        let c = Dat::from((((opcode / 10_000) % 10) as u8, c));
 
         let opcode = OpCode::from(opcode);
 
@@ -156,7 +154,7 @@ impl Cpu {
         (opcode, a, b, c)
     }
 
-    fn get_input(&mut self, inputs: &mut Option<impl Iterator<Item = i32>>) -> i32 {
+    fn get_input(&mut self, inputs: &mut Option<impl Iterator<Item = i64>>) -> i64 {
         if let Some(inputs) = inputs {
             inputs.next().unwrap()
         } else {
@@ -167,21 +165,21 @@ impl Cpu {
 
             input_line
                 .trim()
-                .parse::<i32>()
+                .parse::<i64>()
                 .expect("Could not parse integer from input")
         }
     }
 
-    async fn get_input_async(&mut self) -> i32 {
+    async fn get_input_async(&mut self) -> i64 {
         self.input.as_mut().unwrap().recv().await.unwrap()
     }
 
-    fn output(&mut self, value: i32) {
+    fn output(&mut self, value: i64) {
         self.outputs.push(value);
         info!("{}", value)
     }
 
-    async fn output_async(&mut self, value: i32) {
+    async fn output_async(&mut self, value: i64) {
         self.output.as_ref().unwrap().send(value).await.unwrap();
         self.output(value);
     }

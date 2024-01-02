@@ -11,8 +11,8 @@ pub enum OpCode {
     Halt,
 }
 
-impl From<i32> for OpCode {
-    fn from(code: i32) -> Self {
+impl From<i64> for OpCode {
+    fn from(code: i64) -> Self {
         match code % 100 {
             1 => Self::Add,
             2 => Self::Mul,
