@@ -1,4 +1,4 @@
-use advent_of_code::intcode_computer::cpu::Cpu;
+use advent_of_code::intcode_computer::cpu::{Cpu, Tx};
 use futures::future::join_all;
 use itertools::{enumerate, Itertools};
 use tokio::runtime::Runtime;
@@ -43,36 +43,27 @@ fn run_amplifier(mut cpu: Cpu, phase: i64, input: i64) -> Option<i64> {
 }
 
 async fn run_feedback_loop(program: Vec<i64>, phase_permutation: Vec<&i64>) -> i64 {
-    let mut cpus = Vec::new();
+    let (mut cpus, input_handles): (Vec<_>, Vec<_>) =
+        (0..5).map(|_| Cpu::new_async(program.clone())).unzip();
 
-    let last_tx = (0..5).fold(None, |last_tx, _| {
-        let (cpu, tx) = Cpu::new_async(program.clone(), last_tx);
-        cpus.push(cpu);
-        Some(tx)
-    });
-    cpus.first_mut().unwrap().output = last_tx;
-    cpus.reverse();
-
-    for (i, cpu) in enumerate(&cpus) {
-        cpu.output
-            .as_ref()
-            .unwrap()
-            .send(*phase_permutation[i])
+    for (i, input_handle) in enumerate(&input_handles) {
+        input_handle
+            .send(Tx::Value(*phase_permutation[i]))
             .await
-            .unwrap()
+            .unwrap();
     }
+    input_handles[0].send(Tx::Value(0)).await.unwrap();
 
-    cpus.last()
-        .unwrap()
-        .output
-        .as_ref()
-        .unwrap()
-        .send(0)
-        .await
-        .unwrap();
-
-    let futures: Vec<_> = cpus.iter_mut().map(|cpu| cpu.run_async(None)).collect();
+    let futures: Vec<_> = cpus
+        .iter_mut()
+        .enumerate()
+        .map(|(i, cpu)| {
+            let i = (i + 1) % input_handles.len();
+            cpu.run_async(input_handles[i].clone())
+        })
+        .collect();
     join_all(futures).await;
+
     *cpus.last().unwrap().outputs.last().unwrap()
 }
 

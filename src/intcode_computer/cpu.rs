@@ -22,6 +22,11 @@ impl From<(u8, i64)> for Dat {
     }
 }
 
+pub enum Tx {
+    Value(i64),
+    RxRequest,
+}
+
 impl Dat {
     fn value(&self, program: &HashMap<usize, i64>, base: &isize) -> i64 {
         match self {
@@ -47,8 +52,7 @@ pub struct Cpu {
     pc: usize,
     pub relative_base: isize,
     pub outputs: Vec<i64>,
-    pub output: Option<Sender<i64>>,
-    input: Option<Receiver<i64>>,
+    input: Option<Receiver<Tx>>,
 }
 
 impl Cpu {
@@ -60,15 +64,13 @@ impl Cpu {
             relative_base: 0,
             outputs: Vec::new(),
             input: None,
-            output: None,
         }
     }
 
-    pub fn new_async(program: Vec<i64>, tx: Option<Sender<i64>>) -> (Self, Sender<i64>) {
+    pub fn new_async(program: Vec<i64>) -> (Self, Sender<Tx>) {
         let (tx_handle, rx) = mpsc::channel(32);
         let mut instance = Self::new(program);
         instance.input = Some(rx);
-        instance.output = tx;
         (instance, tx_handle)
     }
 
@@ -112,7 +114,7 @@ impl Cpu {
         loop {
             let (opcode, a) = self.run_common();
             match opcode {
-                In => *self.get_mut(&a) = self.get_input(&mut inputs),
+                In => *self.get_mut(&a) = self.input(&mut inputs),
                 Out => self.output(self.get(&a)),
                 Halt => break,
                 _ => (),
@@ -120,12 +122,12 @@ impl Cpu {
         }
     }
 
-    pub async fn run_async(&mut self, tx: Option<Sender<i64>>) {
+    pub async fn run_async(&mut self, tx: Sender<Tx>) {
         loop {
             let (opcode, a) = self.run_common();
             match opcode {
-                In => *self.get_mut(&a) = self.get_input_async().await,
-                Out => self.output_async(self.get(&a), tx.as_ref()).await,
+                In => *self.get_mut(&a) = self.input_async(&tx).await,
+                Out => self.output_async(self.get(&a), &tx).await,
                 Halt => break,
                 _ => (),
             }
@@ -154,7 +156,7 @@ impl Cpu {
         (opcode, a, b, c)
     }
 
-    fn get_input(&mut self, inputs: &mut Option<impl Iterator<Item = i64>>) -> i64 {
+    fn input(&mut self, inputs: &mut Option<impl Iterator<Item = i64>>) -> i64 {
         if let Some(inputs) = inputs {
             inputs.next().unwrap()
         } else {
@@ -170,8 +172,13 @@ impl Cpu {
         }
     }
 
-    async fn get_input_async(&mut self) -> i64 {
-        self.input.as_mut().unwrap().recv().await.unwrap()
+    async fn input_async(&mut self, tx: &Sender<Tx>) -> i64 {
+        tx.send(Tx::RxRequest).await.unwrap();
+        loop {
+            if let Tx::Value(value) = self.input.as_mut().unwrap().recv().await.unwrap() {
+                return value;
+            }
+        }
     }
 
     fn output(&mut self, value: i64) {
@@ -179,12 +186,8 @@ impl Cpu {
         info!("{}", value)
     }
 
-    async fn output_async(&mut self, value: i64, tx: Option<&Sender<i64>>) {
-        if let Some(tx) = tx {
-            tx.send(value).await.unwrap();
-        } else {
-            self.output.as_ref().unwrap().send(value).await.unwrap()
-        };
+    async fn output_async(&mut self, value: i64, tx: &Sender<Tx>) {
+        tx.send(Tx::Value(value)).await.unwrap();
         self.output(value);
     }
 }
