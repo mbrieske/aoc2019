@@ -1,4 +1,4 @@
-use advent_of_code::intcode_computer::cpu::{Cpu, Tx};
+use advent_of_code::intcode_computer::cpu::{Cpu, Msg};
 use futures::future::join_all;
 use itertools::{enumerate, Itertools};
 use tokio::runtime::Runtime;
@@ -48,11 +48,11 @@ async fn run_feedback_loop(program: Vec<i64>, phase_permutation: Vec<&i64>) -> i
 
     for (i, input_handle) in enumerate(&input_handles) {
         input_handle
-            .send(Tx::Value(*phase_permutation[i]))
+            .send(Msg::Value(*phase_permutation[i]))
             .await
             .unwrap();
     }
-    input_handles[0].send(Tx::Value(0)).await.unwrap();
+    input_handles[0].send(Msg::Value(0)).await.unwrap();
 
     let futures: Vec<_> = cpus
         .iter_mut()

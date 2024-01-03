@@ -1,24 +1,22 @@
-use std::collections::HashMap;
-
-use advent_of_code::intcode_computer::cpu::Cpu;
+use advent_of_code::intcode_computer::cpu::{Cpu, Msg};
 use itertools::Itertools;
+use std::cmp::Ordering::*;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 advent_of_code::solution!(13);
 
 enum Tile {
-    Empty,  // 0 is an empty tile. No game object appears in this tile.
-    Wall,   // 1 is a wall tile. Walls are indestructible barriers.
-    Block,  // 2 is a block tile. Blocks can be broken by the ball.
-    Paddle, // 3 is a horizontal paddle tile. The paddle is indestructible.
-    Ball,   // 4 is a ball tile. The ball moves diagonally and bounces off objects.
+    Other,
+    Block,
+    Paddle,
+    Ball,
 }
 
 impl From<i64> for Tile {
     fn from(value: i64) -> Self {
         match value {
-            0 => Self::Empty,
-            1 => Self::Wall,
+            0 | 1 => Self::Other,
             2 => Self::Block,
             3 => Self::Paddle,
             4 => Self::Ball,
@@ -51,29 +49,61 @@ pub fn part_one(input: &str) -> Option<u32> {
 }
 
 pub fn part_two(input: &str) -> Option<u32> {
-    None
-}
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut program: Vec<_> = input
+            .trim()
+            .split(',')
+            .map(|s| s.parse().unwrap())
+            .collect();
+        *program.get_mut(0).unwrap() = 2;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use advent_of_code::*;
-    use rstest::rstest;
-    use tracing::Level;
+        let (mut cpu, cpu_input) = Cpu::new_async(program);
 
-    #[rstest]
-    #[case(&advent_of_code::template::read_file("examples", DAY), None)]
-    fn test_part_one(#[case] input: &str, #[case] expected: Option<u32>) {
-        tracing_init(Level::INFO);
-        let result = part_one(input);
-        assert_eq!(result, expected);
-    }
+        let (tx, mut rx) = mpsc::channel(32);
+        tokio::spawn(async move {
+            cpu.run_async(tx).await;
+        });
 
-    #[rstest]
-    #[case(&advent_of_code::template::read_file("examples", DAY), None)]
-    fn test_part_two(#[case] input: &str, #[case] expected: Option<u32>) {
-        tracing_init(Level::INFO);
-        let result = part_two(input);
-        assert_eq!(result, expected);
-    }
+        let mut ball = None;
+        let mut paddle = None;
+        let mut score = 0;
+
+        loop {
+            match rx.recv().await {
+                Some(Msg::Value(-1)) => {
+                    assert_eq!(rx.recv().await.unwrap(), Msg::Value(0));
+                    if let Msg::Value(s) = rx.recv().await.unwrap() {
+                        score = s;
+                    } else {
+                        unreachable!()
+                    }
+                }
+                Some(Msg::Value(x)) => {
+                    let y = rx.recv().await.unwrap();
+                    let tile = rx.recv().await.unwrap();
+                    if let (Msg::Value(_), Msg::Value(tile)) = (y, tile) {
+                        match Tile::from(tile) {
+                            Tile::Paddle => paddle = Some(x),
+                            Tile::Ball => ball = Some(x),
+                            _ => (),
+                        }
+                    } else {
+                        unreachable!();
+                    }
+                }
+                Some(Msg::RxRequest) => {
+                    let joystick_input = match ball.cmp(&paddle) {
+                        Less => -1,
+                        Equal => 0,
+                        Greater => 1,
+                    };
+                    cpu_input.send(Msg::Value(joystick_input)).await.unwrap();
+                }
+                None => break,
+            }
+        }
+
+        Some(score as u32)
+    })
 }

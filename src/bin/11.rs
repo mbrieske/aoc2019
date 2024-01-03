@@ -1,4 +1,4 @@
-use advent_of_code::intcode_computer::cpu::{Cpu, Tx};
+use advent_of_code::intcode_computer::cpu::{Cpu, Msg};
 use pathfinding::grid::Grid;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -27,23 +27,23 @@ pub fn part_one(input: &str) -> Option<u32> {
         });
 
         cpu_input
-            .send(Tx::Value(*seen.entry(pos).or_default()))
+            .send(Msg::Value(*seen.entry(pos).or_default()))
             .await
             .unwrap();
         loop {
             let recv = rx.recv().await;
             if let Some(recv) = recv {
-                if let Tx::Value(color) = recv {
+                if let Msg::Value(color) = recv {
                     seen.insert(pos, color);
                     let turn = rx.recv().await.unwrap();
                     match turn {
-                        Tx::Value(0) => {
+                        Msg::Value(0) => {
                             dir -= 1;
                             if dir < 0 {
                                 dir += 4;
                             }
                         }
-                        Tx::Value(1) => {
+                        Msg::Value(1) => {
                             dir += 1;
                             dir %= 4;
                         }
@@ -52,7 +52,7 @@ pub fn part_one(input: &str) -> Option<u32> {
                     pos.0 += DIRECTIONS[dir as usize].0;
                     pos.1 += DIRECTIONS[dir as usize].1;
                     let send_res = cpu_input
-                        .send(Tx::Value(*seen.entry(pos).or_default()))
+                        .send(Msg::Value(*seen.entry(pos).or_default()))
                         .await;
 
                     if send_res.is_err() {
@@ -63,7 +63,7 @@ pub fn part_one(input: &str) -> Option<u32> {
                 break;
             }
         }
-        drop(cpu_handle);
+        cpu_handle.await.unwrap();
         Some(seen.keys().count() as u32)
     })
 }
@@ -89,32 +89,39 @@ pub fn part_two(input: &str) -> Option<u32> {
         });
 
         cpu_input
-            .send(Tx::Value(*seen.entry(pos).or_default()))
+            .send(Msg::Value(*seen.entry(pos).or_default()))
             .await
             .unwrap();
-        while let Some(Tx::Value(color)) = rx.recv().await {
-            seen.insert(pos, color);
-            let turn = rx.recv().await.unwrap();
-            match turn {
-                Tx::Value(0) => {
-                    dir -= 1;
-                    if dir < 0 {
-                        dir += 4;
+        loop {
+            let recv = rx.recv().await;
+            if let Some(recv) = recv {
+                if let Msg::Value(color) = recv {
+                    seen.insert(pos, color);
+                    let turn = rx.recv().await.unwrap();
+                    match turn {
+                        Msg::Value(0) => {
+                            dir -= 1;
+                            if dir < 0 {
+                                dir += 4;
+                            }
+                        }
+                        Msg::Value(1) => {
+                            dir += 1;
+                            dir %= 4;
+                        }
+                        _ => unreachable!(),
+                    }
+                    pos.0 += DIRECTIONS[dir as usize].0;
+                    pos.1 += DIRECTIONS[dir as usize].1;
+                    let send_res = cpu_input
+                        .send(Msg::Value(*seen.entry(pos).or_default()))
+                        .await;
+
+                    if send_res.is_err() {
+                        break;
                     }
                 }
-                Tx::Value(1) => {
-                    dir += 1;
-                    dir %= 4;
-                }
-                _ => unreachable!(),
-            }
-            pos.0 += DIRECTIONS[dir as usize].0;
-            pos.1 += DIRECTIONS[dir as usize].1;
-            let send_res = cpu_input
-                .send(Tx::Value(*seen.entry(pos).or_default()))
-                .await;
-
-            if send_res.is_err() {
+            } else {
                 break;
             }
         }

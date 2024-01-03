@@ -22,7 +22,8 @@ impl From<(u8, i64)> for Dat {
     }
 }
 
-pub enum Tx {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Msg {
     Value(i64),
     RxRequest,
 }
@@ -52,7 +53,7 @@ pub struct Cpu {
     pc: usize,
     pub relative_base: isize,
     pub outputs: Vec<i64>,
-    input: Option<Receiver<Tx>>,
+    input: Option<Receiver<Msg>>,
 }
 
 impl Cpu {
@@ -67,7 +68,7 @@ impl Cpu {
         }
     }
 
-    pub fn new_async(program: Vec<i64>) -> (Self, Sender<Tx>) {
+    pub fn new_async(program: Vec<i64>) -> (Self, Sender<Msg>) {
         let (tx_handle, rx) = mpsc::channel(32);
         let mut instance = Self::new(program);
         instance.input = Some(rx);
@@ -122,7 +123,7 @@ impl Cpu {
         }
     }
 
-    pub async fn run_async(&mut self, tx: Sender<Tx>) {
+    pub async fn run_async(&mut self, tx: Sender<Msg>) {
         loop {
             let (opcode, a) = self.run_common();
             match opcode {
@@ -172,10 +173,10 @@ impl Cpu {
         }
     }
 
-    async fn input_async(&mut self, tx: &Sender<Tx>) -> i64 {
-        tx.send(Tx::RxRequest).await.unwrap();
+    async fn input_async(&mut self, tx: &Sender<Msg>) -> i64 {
+        tx.send(Msg::RxRequest).await.unwrap();
         loop {
-            if let Tx::Value(value) = self.input.as_mut().unwrap().recv().await.unwrap() {
+            if let Msg::Value(value) = self.input.as_mut().unwrap().recv().await.unwrap() {
                 return value;
             }
         }
@@ -186,8 +187,8 @@ impl Cpu {
         info!("{}", value)
     }
 
-    async fn output_async(&mut self, value: i64, tx: &Sender<Tx>) {
-        tx.send(Tx::Value(value)).await.unwrap();
+    async fn output_async(&mut self, value: i64, tx: &Sender<Msg>) {
+        tx.send(Msg::Value(value)).await.unwrap();
         self.output(value);
     }
 }
